@@ -9,7 +9,6 @@ except ImportError:
 	# functions that rely upon them will raise with a NameError.
 	pass
 
-uavcan_id = 123
 uavcan_name = "org.monashuas.canros"
 
 msgs_with_id = ["uavcan.protocol.NodeStatus"]
