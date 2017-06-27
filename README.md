@@ -4,6 +4,8 @@ UAVCAN to ROS interface.
 canros only supports Python 2 at this stage.
 
 ## Installation
+canros requires [ROS Kinetic](http://wiki.ros.org/kinetic/Installation) and [pyuavcan](http://uavcan.org/Implementations/Pyuavcan/) to be installed.
+
 Clone into the `src` folder in your catkin workspace and run `catkin_make install`.
 
     cd ~/catkin_ws/src
@@ -16,7 +18,7 @@ Clone into the `src` folder in your catkin workspace and run `catkin_make instal
 Run the canros server though ROS.
 
     rosrun canros server.py <can_interface> <uavcan_id>
-    
+
     uavcan_id:      UAVCAN node id for canros. Must be between 1 and 127 inclusive.
     can_interface:  Address of CAN interface.
 
@@ -27,7 +29,7 @@ For details on the API see the inline documentation in [__init__.py](src/canros/
 
 
 ### Examples
-Send a message into the UAVCAN network once every seccond.
+Send a message into the UAVCAN network once every second.
 
 	#!/usr/bin/python
 
@@ -108,12 +110,12 @@ Though the specifications for ROS and UAVCAN types are similar, there are a few 
 
 ### Bit lengths
 UAVCAN allows for an arbitrary bit length for signed and unsigned integers up to 64 bits, as well as a 16 bit float.
-Such types are unavailable in ROS therefore, when creating the ROS message definitions, canros rounds up to the next bit length avialable.
+Such types are unavailable in ROS therefore, when creating the ROS message definitions, canros rounds up to the next bit length available.
 
 ### Union types
 UAVCAN allows a message to be declared a union type which is unavailable in ROS.
-For compatability, canros introduces a new `canros_union_tag` feild into ROS definitions.
-The `canros_union_tag` feild is an unsigned integer which should be set to the index of the feild to be considered.
+For compatability, canros introduces a new `canros_union_tag` field into ROS definitions.
+The `canros_union_tag` feild is an unsigned integer which should be set to the index of the field to be considered.
 Constants named `CANROS_UNION_<field>` (where `<field>` is the name of the field in uppercase) are also added to the ROS definition.
 This does not save bandwidth in the ROS network as all fields are still sent.
 
@@ -126,12 +128,12 @@ All communications with canros are done under the `/canros` topic.
 Messages are sent and received under the `/msg` sub topic.
 Service requests that go into the UAVCAN network are sent through the `/srv/req` sub topic.
 Service responses that go into the UAVCAN network are sent through the `/srv/resp` sub topic.
-Finally the UAVCAN name is used for heirachy.
+Finally the UAVCAN name is used for hierarchy.
 
-For example the message `uavcan.protocol.enumeration.Indication` is sent and received on the topc `/canros/msg/uavcan/protocol/enumeration/Indication`.
+For example the message `uavcan.protocol.enumeration.Indication` is sent and received on the topic `/canros/msg/uavcan/protocol/enumeration/Indication`.
 
 ### UAVCAN node IDs
-ROS does not provide a method for attaching meta data such as source and destination addresses to a message. Therefore, for messages that require the source or destination UAVCAN node id, the `canros_uavcan_id` feild is added to the message definition. 
+ROS does not provide a method for attaching meta data such as source and destination addresses to a message. Therefore, for messages that require the source or destination UAVCAN node id, the `canros_uavcan_id` field is added to the message definition.
 The `canros_uavcan_id` is added to all request definitions in services as well as a hard coded selection of messages.
 Currently `uavcan.protocol.NodeStatus` is the only such hard coded message.
 
