@@ -44,13 +44,13 @@ class Message(Base, canros.Message):
 			if event._connection_header["callerid"] == rospy.get_name():
 				# The message came from canros so ignore
 				return
-			uavcan_msg = copy_ros_uavcan(self.UAVCAN_Type(), event)
+			uavcan_msg = canros.copy_ros_uavcan(self.UAVCAN_Type(), event)
 			uavcan_node.broadcast(uavcan_msg, priority=uavcan.TRANSFER_PRIORITY_LOWEST)
-		self.Subscriber(handler)
+		self.Subscriber(callback=handler)
 
 	def UAVCAN_Subscribe(self):
 		def handler(event):
-			ros_msg = copy_uavcan_ros(self.Type(), event.message)
+			ros_msg = canros.copy_uavcan_ros(self.Type(), event.message)
 			if self.HasIdFeild:
 				setattr(ros_msg, canros.uavcan_id_field_name, event.transfer.source_node_id)
 			self.ROS_Publisher.publish(ros_msg)
@@ -81,9 +81,9 @@ class Service(Base, canros.Service):
 
 	def ROS_Subscribe(self):
 		def handler(event):
-			uavcan_req = copy_ros_uavcan(self.UAVCAN_Type.Request(), event, request=True)
+			uavcan_req = canros.copy_ros_uavcan(self.UAVCAN_Type.Request(), event, request=True)
 
-			q = Queue()
+			q = Queue(maxsize=1)
 			def callback(event):
 				q.put(event.response if event else None)
 
@@ -95,115 +95,19 @@ class Service(Base, canros.Service):
 			uavcan_resp = q.get()
 			if uavcan_resp == None:
 				return
-			return copy_uavcan_ros(self.Response_Type(), uavcan_resp, request=False)
+			return canros.copy_uavcan_ros(self.Response_Type(), uavcan_resp, request=False)
 		self.Service(handler)
 
 	def UAVCAN_Subscribe(self):
 		def handler(event):
-			ros_req = copy_uavcan_ros(self.Request_Type(), event.request, request=True)
+			ros_req = canros.copy_uavcan_ros(self.Request_Type(), event.request, request=True)
 			setattr(ros_req, canros.uavcan_id_field_name, event.transfer.source_node_id)
 			try:
 				ros_resp = self.ROS_ServiceProxy(ros_req)
 			except rospy.ServiceException as ex:
 				return
-			return copy_ros_uavcan(self.UAVCAN_Type.Response(), ros_resp, request=False)
+			return canros.copy_ros_uavcan(self.UAVCAN_Type.Response(), ros_resp, request=False)
 		uavcan_node.add_handler(self.UAVCAN_Type, handler)
-
-# Returns a ROS type for a given UAVCAN type.
-def ros_type_from_type(uavcan_type):
-	if uavcan_type.category == uavcan_type.CATEGORY_COMPOUND:
-		if uavcan_type.kind == uavcan_type.KIND_MESSAGE:
-			return canros.Message(uavcan_type.full_name).Type
-		elif uavcan_type.kind == uavcan_type.KIND_SERVICE:
-			return canros.Service(uavcan_type.full_name).Type
-
-	# No ROS type so return something that evaluates to None.
-	return lambda: None
-
-'''
-Copies a UAVCAN message into a ROS message including service requests or responses.
-
-uavcan_type: Only required when the message category is not compound.
-request: Set to True for service requests and False for service responses. Do not set for messages.
-'''
-def copy_uavcan_ros(ros_msg, uavcan_msg, uavcan_type=None, request=None):
-	if uavcan_type == None:
-		uavcan_type = uavcan_msg._type
-
-	if uavcan_type.category == uavcan_type.CATEGORY_COMPOUND:
-		try:
-			fields = uavcan_type.fields
-			union = uavcan_type.union
-		except AttributeError:
-			fields = uavcan_type.request_fields if request else uavcan_type.response_fields
-			union = uavcan_type.request_union if request else uavcan_type.response_union
-
-		for i, field in enumerate(fields):
-			if field.type.category == field.type.CATEGORY_VOID:
-				continue
-			try:
-				attr = getattr(uavcan_msg, field.name)
-			except AttributeError:
-				# expecting an AttributeError if a non union field is accessed
-				pass
-			else:
-				val = copy_uavcan_ros(getattr(ros_msg, field.name), attr, uavcan_type=field.type, request=request)
-				setattr(ros_msg, field.name, val)
-				if union:
-					setattr(ros_msg, canros.union_tag_field_name, i)
-		return ros_msg
-
-	if uavcan_type.category == uavcan_type.CATEGORY_ARRAY:
-		ros_msg = [ros_type_from_type(uavcan_type.value_type)()]*len(uavcan_msg)
-		for i in range(0, len(uavcan_msg)):
-			ros_msg[i] = copy_uavcan_ros(ros_msg[i], uavcan_msg[i], uavcan_type=uavcan_type.value_type, request=request)
-		return ros_msg
-
-	if uavcan_type.category == uavcan_type.CATEGORY_PRIMITIVE:
-		return uavcan_msg
-
-	raise Exception("Could not copy UAVCAN message")
-
-'''
-Copies a ROS message into a UAVCAN message including service requests or responses.
-
-uavcan_type: Only required when the message category is not compound.
-request: Set to True for service requests and False for service responses. Do not set for messages.
-'''
-def copy_ros_uavcan(uavcan_msg, ros_msg, uavcan_type=None, request=None):
-	if uavcan_type == None:
-		uavcan_type = uavcan_msg._type
-
-	if uavcan_type.category == uavcan_type.CATEGORY_COMPOUND:
-		try:
-			fields = uavcan_type.fields
-			union = uavcan_type.union
-		except AttributeError:
-			fields = uavcan_type.request_fields if request else uavcan_type.response_fields
-			union = uavcan_type.request_union if request else uavcan_type.response_union
-
-		for i, field in enumerate(fields):
-			if field.type.category == field.type.CATEGORY_VOID:
-				continue
-			if (not union) or i == ros_msg.canros_union_tag:
-				val = copy_ros_uavcan(getattr(uavcan_msg, field.name), getattr(ros_msg, field.name), uavcan_type=field.type, request=request)
-				setattr(uavcan_msg, field.name, val)
-		return uavcan_msg
-
-	if uavcan_type.category == uavcan_type.CATEGORY_ARRAY:
-		# edge case for message fields of type uint8[] which get converted to strings
-		if type(ros_msg) is str:
-			return canros.to_uint8(ros_msg)
-
-		for i in range(0, len(ros_msg)):
-			uavcan_msg[i] = copy_ros_uavcan(uavcan_msg[i], ros_msg[i], uavcan_type=uavcan_type.value_type, request=request)
-
-		return uavcan_msg
-
-	if uavcan_type.category == uavcan_type.CATEGORY_PRIMITIVE:
-		return ros_msg
-
-	raise Exception("Could not copy ros message")
 
 '''
 Returns the hardware id for the system.
@@ -267,17 +171,16 @@ def main(argv):
 	# Start ROS and UAVCAN nodes
 	global uavcan_node
 	uavcan_node = uavcan.make_node(can_interface, node_id=uavcan_node_id, node_info=uavcan_node_info)
-	rospy.init_node("canros")
+	rospy.init_node(canros.ros_node_name)
 
 	# Load types
 	for _, typ in uavcan.TYPENAMES.iteritems():
 		Message(typ) if typ.kind == typ.KIND_MESSAGE else Service(typ)
 
 	# Spin
-	while True:
+	while not rospy.is_shutdown():
 		uavcan_node.spin(0.1)
-		if rospy.is_shutdown():
-			raise Exception("ROS shutdown")
+	raise Exception("ROS shutdown")
 
 if __name__ == "__main__":
 	main(sys.argv[1:])
