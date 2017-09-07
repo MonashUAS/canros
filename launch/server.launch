@@ -1,0 +1,12 @@
+<launch>
+  <!-- ROS launch file to run the canros server. -->
+
+  <!-- CONFIGURATION:
+        - can_interface: path to interface used to communicate with the uavcan device.
+	    - uavcan_id: the id the uavcan device should use. -->
+  <arg name="can_interface" default="/dev/ttyACM0"/>
+  <arg name="uavcan_id" default="127"/>
+
+  <node name="canros_server" pkg="canros" type="server.py" output="screen" args="$(arg can_interface) $(arg uavcan_id)"/>
+
+</launch>

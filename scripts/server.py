@@ -3,7 +3,6 @@
 from __future__ import print_function
 from Queue import Queue
 import logging
-import sys
 import re
 
 import canros
@@ -183,4 +182,4 @@ def main(argv):
 	raise Exception("ROS shutdown")
 
 if __name__ == "__main__":
-	main(sys.argv[1:])
+	main(rospy.myargv()[1:])
