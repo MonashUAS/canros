@@ -1,7 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor   # pip install futures
-import monotonic   # pip install monotonic
 import time
 
+import monotonic   # pip install monotonic
+import uavcan
 import rospy
 
 try:
@@ -22,16 +23,19 @@ uavcan_id_field_name = "canros_uavcan_id"
 union_tag_field_name = "canros_union_tag"
 union_const_prefix = "CANROS_UNION_TAG_"
 
+ros_topic_prefix = "/canros"
+get_info_topic = ros_topic_prefix + "/GetInfo"
+
 '''
 The Base class holds methods and properties used by both Messages and Services.
 
 INIT
-uavcan_name:
+name:
 The full UAVCAN name for the type as a string (e.g. uavcan.protocol.param.NumericValue).
 '''
 class _Base(object):
-	def __init__(self, uavcan_name):
-		self.__uavcan_name = uavcan_name
+	def __init__(self, name):
+		self.__uavcan_name = name
 
 	# The full UAVCAN name for the type as a string (e.g. uavcan.protocol.param.NumericValue).
 	@property
@@ -170,21 +174,21 @@ def to_string(uint8_list):
 '''
 Returns the ROS topic for a given UAVCAN full name and type.
 
-uavcan_name:
+name:
 The full UAVCAN name for the type as a string (e.g. uavcan.protocol.param.GetSet).
 typ:
 The type being sent. Must be one of "msg", "srv/req" or "srv/resp".
 '''
-def ros_topic(uavcan_name, typ):
-	return "/canros/" + typ + "/" + uavcan_name.replace(".", "/")
+def ros_topic(name, typ):
+	return ros_topic_prefix + "/" + typ + "/" + name.replace(".", "/")
 
 # Returns the ROS name for a given full UAVCAN name.
-def ros_name(uavcan_name):
-	return uavcan_name.replace(".", "__")
+def ros_name(name):
+	return name.replace(".", "__")
 
 # Whether the full UAVCAN name type has a UAVCAN id field.
-def ros_has_id_field(uavcan_name):
-	return uavcan_name in msgs_with_id
+def ros_has_id_field(name):
+	return name in msgs_with_id
 
 # Returns a ROS type for a given UAVCAN type.
 def ros_type_from_type(uavcan_type):
@@ -204,8 +208,7 @@ uavcan_type: Only required when the message category is not compound.
 request: Set to True for service requests and False for service responses. Do not set for messages.
 '''
 def copy_uavcan_ros(ros_msg, uavcan_msg, uavcan_type=None, request=None):
-	if uavcan_type == None:
-		uavcan_type = uavcan_msg._type
+	uavcan_type = uavcan_type or uavcan.get_uavcan_data_type(uavcan_msg)
 
 	if uavcan_type.category == uavcan_type.CATEGORY_COMPOUND:
 		try:
@@ -231,9 +234,15 @@ def copy_uavcan_ros(ros_msg, uavcan_msg, uavcan_type=None, request=None):
 		return ros_msg
 
 	if uavcan_type.category == uavcan_type.CATEGORY_ARRAY:
-		ros_msg = [ros_type_from_type(uavcan_type.value_type)()]*len(uavcan_msg)
-		for i in range(0, len(uavcan_msg)):
-			ros_msg[i] = copy_uavcan_ros(ros_msg[i], uavcan_msg[i], uavcan_type=uavcan_type.value_type, request=request)
+		if isinstance(ros_msg, str):
+			ros_msg = []
+		for uavcan_item in uavcan_msg:
+			ros_msg.append(copy_uavcan_ros(
+				ros_type_from_type(uavcan_type.value_type)(),
+				uavcan_item,
+				uavcan_type=uavcan_type.value_type,
+				request=request
+			))
 		return ros_msg
 
 	if uavcan_type.category == uavcan_type.CATEGORY_PRIMITIVE:
@@ -248,8 +257,7 @@ uavcan_type: Only required when the message category is not compound.
 request: Set to True for service requests and False for service responses. Do not set for messages.
 '''
 def copy_ros_uavcan(uavcan_msg, ros_msg, uavcan_type=None, request=None):
-	if uavcan_type == None:
-		uavcan_type = uavcan_msg._type
+	uavcan_type = uavcan_type or uavcan.get_uavcan_data_type(uavcan_msg)
 
 	if uavcan_type.category == uavcan_type.CATEGORY_COMPOUND:
 		try:
@@ -263,17 +271,28 @@ def copy_ros_uavcan(uavcan_msg, ros_msg, uavcan_type=None, request=None):
 			if field.type.category == field.type.CATEGORY_VOID:
 				continue
 			if (not union) or i == ros_msg.canros_union_tag:
-				val = copy_ros_uavcan(getattr(uavcan_msg, field.name), getattr(ros_msg, field.name), uavcan_type=field.type, request=request)
-				setattr(uavcan_msg, field.name, val)
+				val = copy_ros_uavcan(
+					getattr(uavcan_msg, field.name),
+					getattr(ros_msg, field.name),
+					uavcan_type=field.type,
+					request=request
+				)
+				if val != getattr(uavcan_msg, field.name):
+					setattr(uavcan_msg, field.name, val)
 		return uavcan_msg
 
 	if uavcan_type.category == uavcan_type.CATEGORY_ARRAY:
 		# edge case for message fields of type uint8[] which get converted to strings
-		if type(ros_msg) is str:
+		if isinstance(ros_msg, str):
 			return to_uint8(ros_msg)
 
-		for i in range(0, len(ros_msg)):
-			uavcan_msg[i] = copy_ros_uavcan(uavcan_msg[i], ros_msg[i], uavcan_type=uavcan_type.value_type, request=request)
+		for ros_item in ros_msg:
+			uavcan_msg.append(copy_ros_uavcan(
+				uavcan_msg.new_item(),
+				ros_item,
+				uavcan_type=uavcan_type.value_type,
+				request=request
+			))
 
 		return uavcan_msg
 
@@ -317,8 +336,10 @@ class uavcan_node(object):
 	# Mimics a message handler. Used in add_handler.
 	class _MessageHandler(object):
 		def __init__(self, node, uavcan_type, callback):
-			cb_lambda = lambda ros_event: callback(uavcan_node._Event(node, uavcan_type, ros_event))
-			sub = Message(uavcan_type.full_name).Subscriber(callback=cb_lambda)
+			def cb_wrapper(ros_event):
+				if ros_event._connection_header["callerid"] != rospy.get_name():
+					callback(uavcan_node._Event(node, uavcan_type, ros_event))
+			sub = Message(uavcan_type.full_name).Subscriber(callback=cb_wrapper)
 			self.remove = sub.unregister
 
 	# Mimics a service handler. Used in add_handler.
@@ -340,6 +361,27 @@ class uavcan_node(object):
 
 		self.__request_executor = ThreadPoolExecutor(max_workers=5)
 
+		self.__node_info = None
+		self.__node_info_sp = rospy.ServiceProxy(get_info_topic, srv.GetNodeInfo)
+		self.__node_info_last = -1
+
+	def __get_node_info(self):
+		if monotonic.monotonic() - self.__node_info_last >= 1:
+			self.__node_info_last = monotonic.monotonic()
+			try:
+				self.__node_info = self.__node_info_sp().node_info
+			except rospy.ServiceException:
+				raise Exception("Could not connect to canros server.")
+		return self.__node_info
+
+	@property
+	def node_info(self):
+		return copy_ros_uavcan(uavcan.protocol.GetNodeInfo.Response(), self.__get_node_info(), request=False)
+
+	@property
+	def node_id(self):
+		return getattr(self.__get_node_info().status, uavcan_id_field_name)
+
 	def add_handler(self, uavcan_type, callback):
 		if uavcan_type.kind == uavcan_type.KIND_MESSAGE:
 			handler = uavcan_node._MessageHandler(self, uavcan_type, callback)
@@ -349,14 +391,16 @@ class uavcan_node(object):
 		return handler
 
 	def broadcast(self, uavcan_msg, priority=None):
-		uavcan_full_name = uavcan_msg._type.full_name
+		#pylint: disable=W0613
+		uavcan_full_name = uavcan.get_uavcan_data_type(uavcan_msg).full_name
 		if not uavcan_full_name in self.__publishers:
 			self.__publishers[uavcan_full_name] = Message(uavcan_full_name).Publisher(queue_size=10)
 		publisher = self.__publishers[uavcan_full_name]
 		publisher.publish(copy_uavcan_ros(publisher.data_class(), uavcan_msg))
 
 	def request(self, uavcan_msg, node_id, callback, priority=None, timeout=None):
-		uavcan_type = uavcan_msg._type
+		#pylint: disable=W0613
+		uavcan_type = uavcan.get_uavcan_data_type(uavcan_msg)
 		if not uavcan_type.full_name in self.__service_proxies:
 			self.__service_proxies[uavcan_type.full_name] = Service(uavcan_type.full_name).ServiceProxy()
 		service_proxy = self.__service_proxies[uavcan_type.full_name]
@@ -372,7 +416,7 @@ class uavcan_node(object):
 
 		def request_finished(fut):
 			ros_resp = fut.result()
-			if ros_resp == None:
+			if ros_resp is None:
 				uavcan_resp = None
 			else:
 				uavcan_resp = uavcan_node._Event(self, uavcan_type, ros_resp, uavcan_id=node_id, request=False)
@@ -397,3 +441,4 @@ class uavcan_node(object):
 			service_proxy.close()
 		for handler in self.__handlers:
 			handler.remove()
+		self.__node_info_sp.close()

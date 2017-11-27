@@ -30,13 +30,15 @@ class Base(object):
 		raise NotImplementedError()
 
 class Message(Base, canros.Message):
+	def __init__(self, uavcan_type):
+		super(Message, self).__init__(uavcan_type)
+		self.__ros_publisher = None
+
 	@property
 	def ROS_Publisher(self):
-		try:
-			return self.__ros_publisher
-		except AttributeError:
+		if self.__ros_publisher is None:
 			self.__ros_publisher = self.Publisher(queue_size=10)
-			return self.__ros_publisher
+		return self.__ros_publisher
 
 	def ROS_Subscribe(self):
 		def handler(event):
@@ -56,27 +58,35 @@ class Message(Base, canros.Message):
 		uavcan_node.add_handler(self.UAVCAN_Type, handler)
 
 class Service(Base, canros.Service):
+	def __init__(self, uavcan_type):
+		super(Service, self).__init__(uavcan_type)
+		self.__ros_service_proxy = None
+
 	# This is the canros server so the service naming scheme is the reverse of the canros API.
 	@property
-	def Request_Name(self): return super(Service, self).Response_Name
+	def Request_Name(self):
+		return super(Service, self).Response_Name
 	@property
-	def Response_Name(self): return super(Service, self).Request_Name
+	def Response_Name(self):
+		return super(Service, self).Request_Name
 	@property
-	def Request_Type(self): return super(Service, self).Response_Type
+	def Request_Type(self):
+		return super(Service, self).Response_Type
 	@property
-	def Response_Type(self): return super(Service, self).Request_Type
+	def Response_Type(self):
+		return super(Service, self).Request_Type
 	@property
-	def Request_Topic(self): return super(Service, self).Response_Topic
+	def Request_Topic(self):
+		return super(Service, self).Response_Topic
 	@property
-	def Response_Topic(self): return super(Service, self).Request_Topic
+	def Response_Topic(self):
+		return super(Service, self).Request_Topic
 
 	@property
 	def ROS_ServiceProxy(self):
-		try:
-			return self.__ros_service_proxy
-		except AttributeError:
+		if self.__ros_service_proxy is None:
 			self.__ros_service_proxy = self.ServiceProxy()
-			return self.__ros_service_proxy
+		return self.__ros_service_proxy
 
 	def ROS_Subscribe(self):
 		def handler(event):
@@ -92,7 +102,7 @@ class Service(Base, canros.Service):
 			uavcan_node.request(uavcan_req, uavcan_id, callback, timeout=1)   # Default UAVCAN service timeout is 1 second
 
 			uavcan_resp = q.get()
-			if uavcan_resp == None:
+			if uavcan_resp is None:
 				return
 			return canros.copy_uavcan_ros(self.Response_Type(), uavcan_resp, request=False)
 		self.Service(handler)
@@ -103,14 +113,15 @@ class Service(Base, canros.Service):
 			setattr(ros_req, canros.uavcan_id_field_name, event.transfer.source_node_id)
 			try:
 				ros_resp = self.ROS_ServiceProxy(ros_req)
-			except rospy.ServiceException as ex:
+			except rospy.ServiceException:
 				return
 			return canros.copy_ros_uavcan(self.UAVCAN_Type.Response(), ros_resp, request=False)
 		uavcan_node.add_handler(self.UAVCAN_Type, handler)
 
 '''
 Returns the hardware id for the system.
-Roughly follows MachineIDReader from https://github.com/UAVCAN/libuavcan/blob/master/libuavcan_drivers/linux/include/uavcan_linux/system_utils.hpp.
+Roughly follows MachineIDReader from:
+https://github.com/UAVCAN/libuavcan/blob/master/libuavcan_drivers/linux/include/uavcan_linux/system_utils.hpp.
 '''
 def hardware_id():
 	search_locations = [
@@ -168,13 +179,21 @@ def main(argv):
 	uavcan_node_info.hardware_version.unique_id = hardware_id()
 
 	# Start ROS and UAVCAN nodes
-	global uavcan_node
+	global uavcan_node		#pylint: disable=W0603
 	uavcan_node = uavcan.make_node(can_interface, node_id=uavcan_node_id, node_info=uavcan_node_info)
 	rospy.init_node(canros.ros_node_name)
 
 	# Load types
 	for _, typ in uavcan.TYPENAMES.iteritems():
-		Message(typ) if typ.kind == typ.KIND_MESSAGE else Service(typ)
+		_ = Message(typ) if typ.kind == typ.KIND_MESSAGE else Service(typ)
+
+	# GetInfo
+	def GetInfoHandler(_):
+		rosmsg = canros.srv.GetNodeInfoResponse()
+		rosmsg.node_info = canros.copy_uavcan_ros(rosmsg.node_info, uavcan_node.node_info, request=False)
+		setattr(rosmsg.node_info.status, canros.uavcan_id_field_name, uavcan_node.node_id)
+		return rosmsg
+	rospy.Service(canros.get_info_topic, canros.srv.GetNodeInfo, GetInfoHandler)
 
 	# Spin
 	while not rospy.is_shutdown():
