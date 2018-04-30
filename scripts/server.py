@@ -196,9 +196,20 @@ def main(argv):
 	rospy.Service(canros.get_info_topic, canros.srv.GetNodeInfo, GetInfoHandler)
 
 	# Spin
+	uavcan_errors = 0
 	while not rospy.is_shutdown():
-		uavcan_node.spin(0.1)
-	raise Exception("ROS shutdown")
+		try:
+			uavcan_node.spin(0)
+			if uavcan_errors > 0:
+				uavcan_errors = 0
+		except uavcan.transport.TransferError:
+			uavcan_errors += 1
+			if uavcan_errors >= 1000:
+				print("Too many UAVCAN transport errors")
+				break
+		print(uavcan_errors)
+
+	print("canros server exited successfully")
 
 if __name__ == "__main__":
 	main(rospy.myargv()[1:])
