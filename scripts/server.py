@@ -166,6 +166,13 @@ def main():
 		print("'uavcan_id' must be an integer from 0-127")
 		return
 
+	try:
+		blacklist = list(rospy.get_param('~blacklist'))
+	except KeyError:
+		print("'blacklist' ROS parameter must be set")
+	except ValueError:
+		print("'blacklist' must be a list or strings")
+
 	# Init UAVCAN logging
 	uavcan.driver.slcan.logger.addHandler(logging.StreamHandler())
 	uavcan.driver.slcan.logger.setLevel('DEBUG')
@@ -182,8 +189,10 @@ def main():
 	uavcan_node = uavcan.make_node(can_interface, node_id=uavcan_node_id, node_info=uavcan_node_info)
 
 	# Load types
-	for _, typ in uavcan.TYPENAMES.iteritems():
+	for uavcan_name, typ in uavcan.TYPENAMES.iteritems():
 		if typ.default_dtid is None:
+			continue
+		if uavcan_name in blacklist:
 			continue
 
 		_ = Message(typ) if typ.kind == typ.KIND_MESSAGE else Service(typ)

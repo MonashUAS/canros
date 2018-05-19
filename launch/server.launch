@@ -5,9 +5,11 @@
 	-->
 	<arg name="can_interface" default="/dev/ttyACM0"/>
 	<arg name="uavcan_id" default="127"/>
+	<arg name="config_yaml" default="$(find canros)/launch/default.yaml"/>
 
 	<node ns="canros" name="server" pkg="canros" type="server.py" output="screen" required="true">
-		<param name="can_interface" value="$(arg can_interface)" />
-		<param name="uavcan_id" value="$(arg uavcan_id)" />
+		<param name="can_interface" type="str" value="$(arg can_interface)" />
+		<param name="uavcan_id" type="int" value="$(arg uavcan_id)" />
+		<rosparam command="load" file="$(arg config_yaml)" />
 	</node>
 </launch>
