@@ -183,6 +183,9 @@ def main():
 
 	# Load types
 	for _, typ in uavcan.TYPENAMES.iteritems():
+		if typ.default_dtid is None:
+			continue
+
 		_ = Message(typ) if typ.kind == typ.KIND_MESSAGE else Service(typ)
 
 	# GetInfo
