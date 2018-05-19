@@ -21,6 +21,11 @@ Run the canros server though ROS.
 
 - uavcan_id: UAVCAN node id for canros server. Must be between 1 and 127 inclusive (default `127`).
 - can_interface: Address of CAN interface (default `/dev/ttyACM0`).
+- config_yaml: Path to a config yaml file (default [`default.yaml`](launch/default.yaml)).
+
+### YAML config
+
+- blacklist: A list of UAVCAN types to not subscribe to. For example `["uavcan.equipment.actuator.ArrayCommand", "uavcan.equipment.esc.RawCommand"]`.
 
 
 ## API
@@ -104,6 +109,11 @@ Provide a service for consumption by the UAVCAN network.
 		rospy.sleep(1)
 		if rospy.is_shutdown():
 			raise Exception("ROS shutdown")
+
+
+## Custom UAVCAN DSDL definitions
+canros server uses pyuavcan so custom UAVCAN DSDL definitions can be imported using the instructions on [this page](http://uavcan.org/Implementations/Pyuavcan/Tutorials/2._Basic_usage/#using-vendor-specific-dsdl-definitions). 
+
 
 ## Conversion between ROS and UAVCAN
 Though the specifications for ROS and UAVCAN types are similar, there are a few differences.
