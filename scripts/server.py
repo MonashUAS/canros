@@ -218,6 +218,7 @@ def main():
 				print("Too many UAVCAN transport errors")
 				break
 
+	uavcan_node.close()
 	print("canros server exited successfully")
 
 if __name__ == "__main__":
