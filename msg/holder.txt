@@ -1,1 +1,1 @@
-Hi! I'm a placeholder so that a directory can be made. It's ok, though. It's an important job.
+Hi! I'm a placeholder that will make Git happy enough to make a directory!
