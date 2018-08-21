@@ -6,12 +6,12 @@ canros only supports Python 2 at this stage.
 ## Installation
 canros requires [ROS Kinetic](http://wiki.ros.org/kinetic/Installation) and [pyuavcan](http://uavcan.org/Implementations/Pyuavcan/) to be installed.
 
-Clone into the `src` folder in your catkin workspace and run `catkin build`.
+Clone into the `src` folder in your catkin workspace and run `catkin_make`.
 
     cd ~/catkin_ws/src
     git clone https://github.com/MonashUAS/canros.git
     cd ..
-    catkin build
+    catkin_make
 
 
 ## Running the canros server
