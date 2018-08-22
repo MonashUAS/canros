@@ -184,18 +184,30 @@ def main():
 	uavcan_node_info.software_version.minor = 1
 	uavcan_node_info.hardware_version.unique_id = hardware_id()
 
-	# Start UAVCAN node
-	global uavcan_node		#pylint: disable=W0603
-	uavcan_node = uavcan.make_node(can_interface, node_id=uavcan_node_id, node_info=uavcan_node_info)
-
 	# Load types
+	dtid_blacklist = []
+	valid_types = []
 	for uavcan_name, typ in uavcan.TYPENAMES.iteritems():
 		if typ.default_dtid is None:
 			continue
 		if uavcan_name in blacklist:
+			if typ.kind == typ.KIND_MESSAGE:	# can't blacklist services at pyuavcan level atm
+				dtid_blacklist.append(typ.default_dtid)
 			continue
 
-		_ = Message(typ) if typ.kind == typ.KIND_MESSAGE else Service(typ)
+		valid_types.append(typ)
+
+	# Start UAVCAN node
+	global uavcan_node		#pylint: disable=W0603
+	uavcan_node = uavcan.make_node(
+		can_interface,
+		node_id=uavcan_node_id,
+		node_info=uavcan_node_info,
+		rx_blacklist=dtid_blacklist
+	)
+
+	# Start canros Message and Service forwarders
+	_ = [Message(typ) if typ.kind == typ.KIND_MESSAGE else Service(typ) for typ in valid_types]
 
 	# GetInfo
 	def GetInfoHandler(_):
